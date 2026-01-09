@@ -1,4 +1,18 @@
 import { useState, useEffect } from 'react'
+import { initializeApp } from 'firebase/app'
+import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy } from 'firebase/firestore'
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBk70hqJ7squDaAV-Z2SHbKnkFAKGK8OCU",
+  authDomain: "drink-tracker-680e9.firebaseapp.com",
+  projectId: "drink-tracker-680e9",
+  storageBucket: "drink-tracker-680e9.firebasestorage.app",
+  messagingSenderId: "603411282508",
+  appId: "1:603411282508:web:b543984aafe77759d6d2e9"
+}
+
+const app = initializeApp(firebaseConfig)
+const db = getFirestore(app)
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true)
@@ -28,48 +42,47 @@ export default function App() {
   }
 
   useEffect(() => {
-    loadData()
+    const savedName = localStorage.getItem('userName')
+    if (savedName) {
+      setUserName(savedName)
+    }
+
+    const drinksQuery = query(collection(db, 'drinks'), orderBy('timestamp', 'desc'))
+    const unsubscribe = onSnapshot(drinksQuery, (snapshot) => {
+      const drinksData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+      setAllDrinks(drinksData)
+      if (savedName) {
+        setDrinks(drinksData.filter(d => d.userName === savedName))
+      }
+      setIsLoading(false)
+    }, (error) => {
+      console.error('Error fetching drinks:', error)
+      setIsLoading(false)
+    })
+
+    return () => unsubscribe()
   }, [])
 
-  const loadData = () => {
-    setIsLoading(true)
-    try {
-      const savedName = localStorage.getItem('userName')
-      if (savedName) {
-        setUserName(savedName)
-      }
-
-      const sharedDrinks = localStorage.getItem('allDrinks')
-      if (sharedDrinks) {
-        const parsed = JSON.parse(sharedDrinks)
-        setAllDrinks(parsed)
-        if (savedName) {
-          setDrinks(parsed.filter(d => d.userName === savedName))
-        }
-      }
-    } catch (e) {
-      console.log('Storage not available or empty')
+  useEffect(() => {
+    if (userName) {
+      setDrinks(allDrinks.filter(d => d.userName === userName))
     }
-    setIsLoading(false)
-  }
+  }, [userName, allDrinks])
 
   const saveUserName = () => {
     if (!tempName.trim()) return
     const name = tempName.trim()
     setUserName(name)
-    try {
-      localStorage.setItem('userName', name)
-      setDrinks(allDrinks.filter(d => d.userName === name))
-    } catch (e) {
-      console.log('Could not save to storage')
-    }
+    localStorage.setItem('userName', name)
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!drinkName.trim() || !location.trim()) return
-    
+
     const newDrink = {
-      id: Date.now(),
       userName: userName,
       type: drinkType,
       name: drinkName,
@@ -79,36 +92,23 @@ export default function App() {
       timestamp: new Date(date + 'T' + time).toISOString()
     }
 
-    const updatedAllDrinks = [newDrink, ...allDrinks]
-    const updatedUserDrinks = [newDrink, ...drinks]
-    
-    setAllDrinks(updatedAllDrinks)
-    setDrinks(updatedUserDrinks)
-    
     try {
-      localStorage.setItem('allDrinks', JSON.stringify(updatedAllDrinks))
+      await addDoc(collection(db, 'drinks'), newDrink)
+      setDrinkName('')
+      setLocation('')
+      setDrinkType('beer')
+      setShowSuccess(true)
+      setTimeout(() => setShowSuccess(false), 3000)
     } catch (e) {
-      console.log('Could not save to storage')
+      console.error('Error adding drink:', e)
     }
-
-    setDrinkName('')
-    setLocation('')
-    setDrinkType('beer')
-    setShowSuccess(true)
-    setTimeout(() => setShowSuccess(false), 3000)
   }
 
-  const deleteDrink = (id) => {
-    const updatedAllDrinks = allDrinks.filter(d => d.id !== id)
-    const updatedUserDrinks = drinks.filter(d => d.id !== id)
-    
-    setAllDrinks(updatedAllDrinks)
-    setDrinks(updatedUserDrinks)
-    
+  const deleteDrink = async (id) => {
     try {
-      localStorage.setItem('allDrinks', JSON.stringify(updatedAllDrinks))
+      await deleteDoc(doc(db, 'drinks', id))
     } catch (e) {
-      console.log('Could not save to storage')
+      console.error('Error deleting drink:', e)
     }
   }
 
